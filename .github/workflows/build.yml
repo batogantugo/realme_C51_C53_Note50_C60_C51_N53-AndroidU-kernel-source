@@ -1,4 +1,4 @@
-name: HeisenbergsDarkRealm-Note50
+name: HeisenbergsDarkRealm-Note50 (diagnostic)
 
 on:
   workflow_dispatch:
@@ -15,36 +15,52 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git bc bison flex build-essential libssl-dev libncurses-dev make gcc-aarch64-linux-gnu
 
-      - name: Patch known compile issues
+      - name: Apply fixes
         run: |
-          # Fix wrong printf format in mm/filemap.c (i_ino is unsigned long)
+          # Fix bad printf format in filemap
           sed -i 's/"dev %d:%d ino %x name %s\\n"/"dev %d:%d ino %lx name %s\\n"/g' mm/filemap.c
-          # Remove always-true NULL checks in kernel/profile.c
+          # Remove always-true NULL checks in profile
           sed -i '/if (prof_cpu_mask != NULL)/d' kernel/profile.c
           sed -i '/if (!user_mode(regs) && prof_cpu_mask != NULL &&/c\        if (!user_mode(regs) &&' kernel/profile.c
 
-      - name: Build kernel (system compiler, no WERROR)
+      - name: Configure
         run: |
           make ARCH=arm64 O=out unisoc_fuzz_ums512_defconfig
           sed -i 's/CONFIG_WERROR=y/# CONFIG_WERROR is not set/g' out/.config
-          make -j$(nproc) ARCH=arm64 O=out CROSS_COMPILE=aarch64-linux-gnu- 2>&1 | tee build.log
 
-      - name: Prepare kernel image
+      - name: Build sequential (get exact error)
         run: |
-          K=out/arch/arm64/boot/Image.gz-dtb
-          [ -f "$K" ] || K=out/arch/arm64/boot/Image
+          set -o pipefail
+          make -j1 V=1 ARCH=arm64 O=out CROSS_COMPILE=aarch64-linux-gnu- 2>&1 | tee build.log
+        continue-on-error: true
+
+      - name: Show tail of log
+        run: |
+          echo "==== LAST 200 LINES ===="
+          tail -n 200 build.log || true
+
+      - name: Upload build log
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+
+      - name: Upload out folder
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-out
+          path: out
+
+      - name: If success, package zImage
+        if: success()
+        run: |
+          K=out/arch/arm64/boot/Image.gz-dtb; [ -f "$K" ] || K=out/arch/arm64/boot/Image
           cp "$K" zImage
           ls -lh zImage
 
-      - name: Upload kernel (zImage)
+      - name: Upload zImage (on success)
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: HeisenbergKernel-zImage
           path: zImage
-
-      - name: Upload full build log (on failure)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: full-build-log
-          path: build.log
