@@ -1,44 +1,50 @@
-name: Build Heisenberg'sDarkRealm Kernel (v9 - Final Patch)
+name: HeisenbergsDarkRealm-Note50
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build Kernel with Final Patch
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Kernel Source
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      - name: Install deps (system cross-compiler)
         run: |
           sudo apt-get update
           sudo apt-get install -y git bc bison flex build-essential libssl-dev libncurses-dev make gcc-aarch64-linux-gnu
 
-      - name: Apply Patches
+      - name: Patch known compile issues
         run: |
-          # This is the specific fix for the error in mm/filemap.c
+          # Fix wrong printf format in mm/filemap.c (i_ino is unsigned long)
           sed -i 's/"dev %d:%d ino %x name %s\\n"/"dev %d:%d ino %lx name %s\\n"/g' mm/filemap.c
-          
-      - name: Build Kernel
-        run: |
-          # Use the standard, reliable cross-compiler
-          make ARCH=arm64 O=out unisoc_fuzz_ums512_defconfig
-          # Disable warnings-as-errors as a fallback
-          sed -i 's/CONFIG_WERROR=y/# CONFIG_WERROR is not set/g' out/.config
-          # Build the kernel
-          make -j$(nproc) ARCH=arm64 O=out CROSS_COMPILE=aarch64-linux-gnu-
+          # Remove always-true NULL checks in kernel/profile.c
+          sed -i '/if (prof_cpu_mask != NULL)/d' kernel/profile.c
+          sed -i '/if (!user_mode(regs) && prof_cpu_mask != NULL &&/c\        if (!user_mode(regs) &&' kernel/profile.c
 
-      - name: Prepare Kernel Image
+      - name: Build kernel (system compiler, no WERROR)
         run: |
-          KIMG=out/arch/arm64/boot/Image.gz-dtb
-          [ -f "$KIMG" ] || KIMG=out/arch/arm64/boot/Image
-          mv "$KIMG" zImage
+          make ARCH=arm64 O=out unisoc_fuzz_ums512_defconfig
+          sed -i 's/CONFIG_WERROR=y/# CONFIG_WERROR is not set/g' out/.config
+          make -j$(nproc) ARCH=arm64 O=out CROSS_COMPILE=aarch64-linux-gnu- 2>&1 | tee build.log
+
+      - name: Prepare kernel image
+        run: |
+          K=out/arch/arm64/boot/Image.gz-dtb
+          [ -f "$K" ] || K=out/arch/arm64/boot/Image
+          cp "$K" zImage
           ls -lh zImage
 
-      - name: Upload Kernel Artifact
+      - name: Upload kernel (zImage)
         uses: actions/upload-artifact@v4
         with:
           name: HeisenbergKernel-zImage
           path: zImage
+
+      - name: Upload full build log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-build-log
+          path: build.log
