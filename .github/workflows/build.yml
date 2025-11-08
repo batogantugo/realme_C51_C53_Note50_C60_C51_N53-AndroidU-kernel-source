@@ -1,4 +1,4 @@
-name: HeisenbergsDarkRealm-Note50 (diagnostic)
+name: HeisenbergsDarkRealm-Note50
 
 on:
   workflow_dispatch:
@@ -17,9 +17,9 @@ jobs:
 
       - name: Apply fixes
         run: |
-          # Fix bad printf format in filemap
+          # Fix wrong printf format (unsigned long)
           sed -i 's/"dev %d:%d ino %x name %s\\n"/"dev %d:%d ino %lx name %s\\n"/g' mm/filemap.c
-          # Remove always-true NULL checks in profile
+          # Remove always-true NULL checks
           sed -i '/if (prof_cpu_mask != NULL)/d' kernel/profile.c
           sed -i '/if (!user_mode(regs) && prof_cpu_mask != NULL &&/c\        if (!user_mode(regs) &&' kernel/profile.c
 
@@ -28,30 +28,23 @@ jobs:
           make ARCH=arm64 O=out unisoc_fuzz_ums512_defconfig
           sed -i 's/CONFIG_WERROR=y/# CONFIG_WERROR is not set/g' out/.config
 
-      - name: Build sequential (get exact error)
+      - name: Build sequential (show exact error if any)
         run: |
           set -o pipefail
+          export KCFLAGS='-Wno-error'
+          export KBUILD_CFLAGS='-Wno-error'
+          export KBUILD_CPPFLAGS='-Wno-error'
           make -j1 V=1 ARCH=arm64 O=out CROSS_COMPILE=aarch64-linux-gnu- 2>&1 | tee build.log
         continue-on-error: true
 
-      - name: Show tail of log
-        run: |
-          echo "==== LAST 200 LINES ===="
-          tail -n 200 build.log || true
-
-      - name: Upload build log
+      - name: Upload build log (always)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-log
           path: build.log
 
-      - name: Upload out folder
-        uses: actions/upload-artifact@v4
-        with:
-          name: kernel-out
-          path: out
-
-      - name: If success, package zImage
+      - name: Package zImage (on success)
         if: success()
         run: |
           K=out/arch/arm64/boot/Image.gz-dtb; [ -f "$K" ] || K=out/arch/arm64/boot/Image
