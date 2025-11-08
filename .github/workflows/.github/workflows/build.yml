@@ -1,0 +1,38 @@
+name: Build Heisenberg'sDarkRealm Kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Kernel for Realme Note 50
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git bc bison flex build-essential libssl-dev libncurses-dev gcc-aarch64-linux-gnu make
+
+      - name: Build Kernel (with fixes)
+        run: |
+          # Use a reliable cross-compiler and disable warnings-as-errors
+          make ARCH=arm64 O=out unisoc_fuzz_ums512_defconfig
+          make -j$(nproc) ARCH=arm64 O=out CROSS_COMPILE=aarch64-linux-gnu- KCFLAGS="-Wno-error"
+
+      - name: Prepare Kernel Image
+        run: |
+          # Find the built kernel image
+          KIMG=out/arch/arm64/boot/Image.gz-dtb
+          [ -f "$KIMG" ] || KIMG=out/arch/arm64/boot/Image
+          # Rename it for easy repacking
+          mv "$KIMG" zImage
+          ls -lh zImage
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeisenbergKernel-zImage
+          path: zImage
