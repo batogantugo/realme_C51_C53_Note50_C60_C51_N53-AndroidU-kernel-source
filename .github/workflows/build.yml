@@ -1,40 +1,29 @@
-name: Build Heisenberg'sDarkRealm Kernel (v6 - Final Fix)
+name: Build Heisenberg'sDarkRealm Kernel (v7 - System Compiler)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build Kernel for Realme Note 50
+    name: Build Kernel with System Compilers
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
 
-      - name: Install Dependencies & Toolchain
+      - name: Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y git bc bison flex build-essential libssl-dev libncurses-dev make gcc
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang toolchain
+          sudo apt-get install -y git bc bison flex build-essential libssl-dev libncurses-dev make gcc-aarch64-linux-gnu
 
-      - name: Build Kernel with Host GCC Fix
+      - name: Build Kernel
         run: |
-          # Add the toolchain to the path
-          export PATH="$PWD/toolchain/bin:$PATH"
-          
-          # Force the build to use system GCC for helper tools, but Clang for the kernel
+          # Use the standard, reliable cross-compiler provided by Ubuntu
           make ARCH=arm64 O=out unisoc_fuzz_ums512_defconfig
-          make -j$(nproc) ARCH=arm64 O=out \
-            CC=clang \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip \
-            HOSTCC=gcc \
-            HOSTLD=ld \
-            KCFLAGS="-Wno-error"
+          # Disable warnings as errors as a fallback
+          sed -i 's/CONFIG_WERROR=y/# CONFIG_WERROR is not set/g' out/.config
+          # Build the kernel
+          make -j$(nproc) ARCH=arm64 O=out CROSS_COMPILE=aarch64-linux-gnu-
 
       - name: Prepare Kernel Image
         run: |
