@@ -1,0 +1,51 @@
+name: Build Heisenberg'sDarkRealm Kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Kernel for Realme Note 50
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git bc bison flex build-essential libssl-dev libncurses-dev gcc-aarch64-linux-gnu make
+
+      - name: Patch for Fluidity & Battery
+        run: |
+          # Patch format string errors that cause build failure
+          sed -i 's/ino %x/ino %lx/g' mm/filemap.c
+          sed -i 's/%x/%lx/g' kernel/profile.c
+          
+          # Use a modern TCP algorithm for better Wi-Fi/data speed
+          scripts/config --file arch/arm64/configs/unisoc_fuzz_ums512_defconfig -e CONFIG_TCP_CONG_BBR
+          scripts/config --file arch/arm64/configs/unisoc_fuzz_ums512_defconfig -d CONFIG_TCP_CONG_CUBIC
+
+      - name: Build Kernel
+        run: |
+          # Use a simple, reliable cross-compiler
+          make ARCH=arm64 O=out unisoc_fuzz_ums512_defconfig
+          # Disable WERROR to prevent warnings from stopping the build
+          scripts/config --file out/.config --disable CONFIG_WERROR
+          # Build using all available cores
+          yes '' | make -j$(nproc) ARCH=arm64 O=out CROSS_COMPILE=aarch64-linux-gnu-
+
+      - name: Prepare Kernel Image
+        run: |
+          # Find the built kernel image, prefer the compressed one with DTB
+          KIMG=out/arch/arm64/boot/Image.gz-dtb
+          [ -f "$KIMG" ] || KIMG=out/arch/arm64/boot/Image
+          # Rename it to zImage for easy repacking
+          mv "$KIMG" zImage
+          ls -lh zImage
+
+      - name: Upload Kernel Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HeisenbergKernel-zImage
+          path: zImage
