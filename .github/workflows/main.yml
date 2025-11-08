@@ -1,0 +1,38 @@
+name: Find Build Error (v5 - Sequential)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Kernel Sequentially
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies & Toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git bc bison flex build-essential libssl-dev libncurses-dev make
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang toolchain
+
+      - name: Build Kernel (Sequential)
+        run: |
+          # Add the toolchain to the path
+          export PATH="$PWD/toolchain/bin:$PATH"
+          
+          # Forcefully remove the setting that treats warnings as errors
+          sed -i 's/-Werror//g' Makefile
+          
+          # Configure and build the kernel one file at a time to find the exact error
+          make ARCH=arm64 O=out unisoc_fuzz_ums512_defconfig
+          make -j1 ARCH=arm64 O=out CC=clang LD=ld.lld AR=llvm-ar NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip 2>&1 | tee build.log
+
+      - name: Upload Full Build Log
+        # This step runs whether the build succeeds or fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-build-log
+          path: build.log
