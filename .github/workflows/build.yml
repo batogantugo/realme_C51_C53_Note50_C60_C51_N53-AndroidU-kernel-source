@@ -1,4 +1,4 @@
-name: Build Heisenberg'sDarkRealm Kernel
+name: Build Heisenberg'sDarkRealm Kernel (v6 - Final Fix)
 
 on:
   workflow_dispatch:
@@ -11,36 +11,35 @@ jobs:
       - name: Checkout Kernel Source
         uses: actions/checkout@v4
 
-      - name: Install Build Dependencies
+      - name: Install Dependencies & Toolchain
         run: |
           sudo apt-get update
-          sudo apt-get install -y git bc bison flex build-essential libssl-dev libncurses-dev gcc-aarch64-linux-gnu make
+          sudo apt-get install -y git bc bison flex build-essential libssl-dev libncurses-dev make gcc
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang toolchain
 
-      - name: Patch for Fluidity & Battery
+      - name: Build Kernel with Host GCC Fix
         run: |
-          # Patch format string errors that cause build failure
-          sed -i 's/ino %x/ino %lx/g' mm/filemap.c
-          sed -i 's/%x/%lx/g' kernel/profile.c
+          # Add the toolchain to the path
+          export PATH="$PWD/toolchain/bin:$PATH"
           
-          # Use a modern TCP algorithm for better Wi-Fi/data speed
-          scripts/config --file arch/arm64/configs/unisoc_fuzz_ums512_defconfig -e CONFIG_TCP_CONG_BBR
-          scripts/config --file arch/arm64/configs/unisoc_fuzz_ums512_defconfig -d CONFIG_TCP_CONG_CUBIC
-
-      - name: Build Kernel
-        run: |
-          # Use a simple, reliable cross-compiler
+          # Force the build to use system GCC for helper tools, but Clang for the kernel
           make ARCH=arm64 O=out unisoc_fuzz_ums512_defconfig
-          # Disable WERROR to prevent warnings from stopping the build
-          scripts/config --file out/.config --disable CONFIG_WERROR
-          # Build using all available cores
-          yes '' | make -j$(nproc) ARCH=arm64 O=out CROSS_COMPILE=aarch64-linux-gnu-
+          make -j$(nproc) ARCH=arm64 O=out \
+            CC=clang \
+            LD=ld.lld \
+            AR=llvm-ar \
+            NM=llvm-nm \
+            OBJCOPY=llvm-objcopy \
+            OBJDUMP=llvm-objdump \
+            STRIP=llvm-strip \
+            HOSTCC=gcc \
+            HOSTLD=ld \
+            KCFLAGS="-Wno-error"
 
       - name: Prepare Kernel Image
         run: |
-          # Find the built kernel image, prefer the compressed one with DTB
           KIMG=out/arch/arm64/boot/Image.gz-dtb
           [ -f "$KIMG" ] || KIMG=out/arch/arm64/boot/Image
-          # Rename it to zImage for easy repacking
           mv "$KIMG" zImage
           ls -lh zImage
 
