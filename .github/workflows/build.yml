@@ -1,11 +1,11 @@
-name: Build Heisenberg'sDarkRealm Kernel (v7 - System Compiler)
+name: Build Heisenberg'sDarkRealm Kernel (v8 - Final Patch)
 
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build Kernel with System Compilers
+    name: Build Kernel with Final Patch
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Kernel Source
@@ -16,11 +16,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git bc bison flex build-essential libssl-dev libncurses-dev make gcc-aarch64-linux-gnu
 
+      - name: Apply Patches
+        run: |
+          # Patch the specific error in kernel/profile.c
+          sed -i '/if (prof_cpu_mask != NULL)/d' kernel/profile.c
+          sed -i '/if (!user_mode(regs) && prof_cpu_mask != NULL &&/c\        if (!user_mode(regs) &&' kernel/profile.c
+          
       - name: Build Kernel
         run: |
-          # Use the standard, reliable cross-compiler provided by Ubuntu
+          # Use the standard, reliable cross-compiler
           make ARCH=arm64 O=out unisoc_fuzz_ums512_defconfig
-          # Disable warnings as errors as a fallback
+          # Disable warnings-as-errors as a fallback
           sed -i 's/CONFIG_WERROR=y/# CONFIG_WERROR is not set/g' out/.config
           # Build the kernel
           make -j$(nproc) ARCH=arm64 O=out CROSS_COMPILE=aarch64-linux-gnu-
