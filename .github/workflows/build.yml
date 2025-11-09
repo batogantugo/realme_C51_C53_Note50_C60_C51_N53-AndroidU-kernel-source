@@ -15,23 +15,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git bc bison flex build-essential libssl-dev libncurses-dev make gcc-aarch64-linux-gnu
 
-      - name: Apply fixes
+      - name: Apply fixes (filemap/profile) and disable hybridswap at Makefile level
         run: |
           # Fix wrong printf format (unsigned long)
           sed -i 's/"dev %d:%d ino %x name %s\\n"/"dev %d:%d ino %lx name %s\\n"/g' mm/filemap.c
-          # Remove always-true NULL checks
+          # Remove always-true NULL checks in profile
           sed -i '/if (prof_cpu_mask != NULL)/d' kernel/profile.c
           sed -i '/if (!user_mode(regs) && prof_cpu_mask != NULL &&/c\        if (!user_mode(regs) &&' kernel/profile.c
+          # Hard-disable vendor hybridswap from building (comment out any hybridswap obj lines)
+          sed -i '/hybridswap/s/^obj-.*/# disabled hybridswap/' drivers/block/zram/Makefile
+          # Also remove direct hybridswap subdir entries, if any
+          sed -i '/hybridswap/d' drivers/block/zram/Makefile || true
 
       - name: Configure
         run: |
           make ARCH=arm64 O=out unisoc_fuzz_ums512_defconfig
           # Disable warnings-as-errors
           sed -i 's/CONFIG_WERROR=y/# CONFIG_WERROR is not set/g' out/.config
-          # Disable vendor hybridswap that conflicts with zram
-          ./scripts/config --file out/.config -d CONFIG_HYBRIDSWAP -d CONFIG_ZRAM_HYBRIDSWAP -d CONFIG_HYBIRD_SWAP -d CONFIG_HYBRID_SWAP
-          # Ensure normal ZRAM stays enabled
-          ./scripts/config --file out/.config -e CONFIG_ZSMALLOC -e CONFIG_ZRAM
+          # Ensure normal ZRAM is enabled; try to disable any hybridswap symbols if present
+          ./scripts/config --file out/.config -e CONFIG_ZSMALLOC -e CONFIG_ZRAM \
+            -d CONFIG_HYBRIDSWAP -d CONFIG_ZRAM_HYBRIDSWAP -d CONFIG_HYBIRD_SWAP -d CONFIG_HYBRID_SWAP || true
           yes "" | make ARCH=arm64 O=out olddefconfig
 
       - name: Build sequential (show exact error if any)
