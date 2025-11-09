@@ -26,7 +26,13 @@ jobs:
       - name: Configure
         run: |
           make ARCH=arm64 O=out unisoc_fuzz_ums512_defconfig
+          # Disable warnings-as-errors
           sed -i 's/CONFIG_WERROR=y/# CONFIG_WERROR is not set/g' out/.config
+          # Disable vendor hybridswap that conflicts with zram
+          ./scripts/config --file out/.config -d CONFIG_HYBRIDSWAP -d CONFIG_ZRAM_HYBRIDSWAP -d CONFIG_HYBIRD_SWAP -d CONFIG_HYBRID_SWAP
+          # Ensure normal ZRAM stays enabled
+          ./scripts/config --file out/.config -e CONFIG_ZSMALLOC -e CONFIG_ZRAM
+          yes "" | make ARCH=arm64 O=out olddefconfig
 
       - name: Build sequential (show exact error if any)
         run: |
