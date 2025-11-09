@@ -15,31 +15,35 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git bc bison flex build-essential libssl-dev libncurses-dev make gcc-aarch64-linux-gnu
 
-      - name: Apply fixes and hard-disable problematic vendor code
+      - name: Remove broken vendor code + small fixes
         run: |
           # 1) Fix printf mismatch in filemap (unsigned long)
           sed -i 's/"dev %d:%d ino %x name %s\\n"/"dev %d:%d ino %lx name %s\\n"/g' mm/filemap.c
           # 2) Remove always-true NULL checks in profile
           sed -i '/if (prof_cpu_mask != NULL)/d' kernel/profile.c
           sed -i '/if (!user_mode(regs) && prof_cpu_mask != NULL &&/c\        if (!user_mode(regs) &&' kernel/profile.c
-          # 3) Hard-disable vendor hybridswap (zram) from building
-          sed -i '/hybridswap/s/^obj-.*/# disabled hybridswap/' drivers/block/zram/Makefile || true
-          sed -i '/hybridswap/d' drivers/block/zram/Makefile || true
-          # 4) Hard-disable buggy SPRD GSP r9p0 unit (keep r8p0)
-          sed -i -E 's/^(obj-[^=]*\+=.*gsp_r9p0.*)$/# disabled gsp_r9p0 \0/' drivers/gpu/drm/sprd/gsp/Makefile || true
-          sed -i '/gsp_r9p0/d' drivers/gpu/drm/sprd/gsp/Makefile || true
 
-      - name: Configure
+          # 3) Nuke hybridswap (conflicts with upstream zram)
+          rm -rf drivers/block/zram/hybridswap || true
+          # Clean any Kbuild references to hybridswap
+          sed -i '/hybridswap/d' drivers/block/zram/Makefile || true
+          sed -i '/hybridswap/d' drivers/block/zram/Kconfig || true
+
+          # 4) Nuke buggy SPRD GSP r9p0 (keep r8p0)
+          rm -rf drivers/gpu/drm/sprd/gsp/gsp_r9p0 || true
+          # Clean any references to r9p0 in Kbuild/Kconfig
+          grep -Rnl 'gsp_r9p0' drivers/gpu || true | xargs -r sed -i 's/gsp_r9p0/# disabled gsp_r9p0/g'
+
+      - name: Configure (disable WERROR, keep ZRAM)
         run: |
           make ARCH=arm64 O=out unisoc_fuzz_ums512_defconfig
-          # Disable warnings-as-errors
           sed -i 's/CONFIG_WERROR=y/# CONFIG_WERROR is not set/g' out/.config
-          # Ensure normal ZRAM enabled; try to disable hybridswap configs if present
+          # Ensure normal ZRAM enabled and hybridswap off if options exist
           ./scripts/config --file out/.config -e CONFIG_ZSMALLOC -e CONFIG_ZRAM \
             -d CONFIG_HYBRIDSWAP -d CONFIG_ZRAM_HYBRIDSWAP -d CONFIG_HYBIRD_SWAP -d CONFIG_HYBRID_SWAP || true
           yes "" | make ARCH=arm64 O=out olddefconfig
 
-      - name: Build sequential (shows exact error if any)
+      - name: Build sequential (show real error if any)
         run: |
           set -o pipefail
           export KCFLAGS='-Wno-error'
